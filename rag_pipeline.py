@@ -1,0 +1,243 @@
+import os
+import time
+import warnings
+
+from google import genai
+from google.genai import types
+
+from hybrid_search import hybrid_search
+
+
+warnings.filterwarnings("ignore")
+
+
+
+# =====================================================
+# Gemini Client Setup
+# =====================================================
+
+_raw_key = os.environ.get(
+    "GEMINI_API_KEY",
+    ""
+)
+
+
+if not _raw_key:
+    raise ValueError(
+        "❌ لم يتم العثور على GEMINI_API_KEY"
+    )
+
+
+_clean_key = (
+    _raw_key
+    .strip()
+    .splitlines()[0]
+    .strip()
+)
+
+
+client = genai.Client(
+    api_key=_clean_key
+)
+
+
+print("Gemini connected ✅")
+
+
+
+
+
+# =====================================================
+# Configuration
+# =====================================================
+
+
+MODEL_FALLBACK_CHAIN = [
+
+    "gemini-3.5-flash-lite",
+    "gemini-3.6-flash",
+    "gemini-3.8-flash"
+
+]
+
+
+MAX_ATTEMPTS_PER_MODEL = 2
+
+
+BACKOFF_SECONDS = [
+
+    1,
+    2
+
+]
+
+
+
+# Hybrid Search فقط
+
+RETRIEVAL_TOP_K = 10
+
+
+# عدد النتائج التي تدخل Gemini
+
+FINAL_CONTEXT_K = 4
+
+
+
+
+
+
+# =====================================================
+# System Instruction
+# =====================================================
+
+
+SYSTEM_INSTRUCTION = """
+
+أنت "نظامي"، مساعد قانوني ذكي متخصص في نظام العمل السعودي.
+
+قواعد الإجابة:
+
+1. أجب فقط اعتماداً على النصوص الموجودة في السياق المرفق.
+
+2. لا تخترع أو تفترض معلومات غير موجودة.
+
+3. إذا لم تجد الإجابة في السياق قل:
+"لم أجد نصاً متعلقاً بهذا السؤال في البيانات المتاحة."
+
+4. اذكر رقم المادة واسم الباب عند توفرها.
+
+5. ابدأ بالإجابة المباشرة على سؤال المستخدم.
+
+6. استخدم فقط المواد الأكثر ارتباطاً بالسؤال، ولا تذكر مواد جانبية غير ضرورية.
+
+7. إذا احتوى السياق على أكثر من مادة مرتبطة، اجمعها في إجابة واحدة مرتبة.
+
+8. لا تكرر نصوص المواد كاملة إلا عند الحاجة.
+
+9. اجعل الإجابة واضحة ومباشرة ودقيقة قانونياً.
+
+"""
+
+
+
+
+
+
+GENERATION_CONFIG = types.GenerateContentConfig(
+
+    temperature=0.0,
+
+    max_output_tokens=800,
+
+    top_p=0.9,
+
+    system_instruction=SYSTEM_INSTRUCTION
+
+)
+
+
+
+
+
+
+
+# =====================================================
+# Normalize Text
+# =====================================================
+
+
+def normalize_text(text):
+
+    text = text.strip().lower()
+
+
+    replacements = {
+
+        "أ": "ا",
+        "إ": "ا",
+        "آ": "ا",
+        "ة": "ه",
+        "ى": "ي"
+
+    }
+
+
+    for old, new in replacements.items():
+
+        text = text.replace(
+            old,
+            new
+        )
+
+
+    return text
+
+
+
+
+
+
+
+
+# =====================================================
+# Small Talk Detection
+# =====================================================
+
+
+def is_small_talk(question):
+
+
+    clean_q = normalize_text(question)
+
+
+
+    greetings = {
+
+        "اهلين",
+        "اهلا",
+        "مرحبا",
+        "هلا",
+        "هاي",
+        "hi",
+        "hello",
+        "السلام عليكم",
+        "كيفك",
+        "كيف حالك",
+        "شخبارك",
+        "علومك",
+        "من انت",
+        "من تكون",
+        "وش تسوي"
+
+    }
+
+
+
+
+    if clean_q in greetings:
+
+        return True
+
+
+
+    if any(
+
+        clean_q.startswith(x)
+
+        for x in [
+
+            "اهلين",
+            "اهلا",
+            "مرحبا",
+            "هلا"
+
+        ]
+
+    ):
+
+        return True
+
+
+
+    return False
