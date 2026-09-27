@@ -623,9 +623,9 @@ async function sendMessage(question) {
             body: JSON.stringify({ question }),
         });
 
-        if (!res.ok) throw new Error('bad status ' + res.status);
-
         const data = await res.json();
+
+        if (!res.ok) throw new Error(data.error || ('bad status ' + res.status));
 
         let html = escapeHtml(data.answer || 'تعذر الحصول على إجابة.');
 
@@ -640,7 +640,7 @@ async function sendMessage(question) {
         typingBubble.innerHTML = html;
 
     } catch (err) {
-        typingBubble.innerHTML = 'حدث خطأ أثناء الاتصال بالسيرفر. تأكدي إن السيرفر شغال وحاولي مرة ثانية.';
+        typingBubble.innerHTML = 'حدث خطأ: ' + escapeHtml(err.message || String(err));
     } finally {
         isSending = false;
         inputEl.disabled = false;
