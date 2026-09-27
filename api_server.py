@@ -60,13 +60,16 @@ def ask(payload: AskRequest):
             "answer": answer,
             "sources": sources,
         }
-    except Exception as e:
-        # مؤقت للتشخيص: يطبع الخطأ الكامل بلوق Render
-        # ويرجعه بالرد نفسه علشان تشوفينه من الفرونت إند
+    except Exception:
+        # نطبع تفاصيل الخطأ الكاملة بلوق السيرفر (Render) فقط للتشخيص،
+        # ولا نرجعها أبداً للمستخدم أو للفرونت إند
         traceback.print_exc()
         return JSONResponse(
-            status_code=500,
-            content={"error": f"{type(e).__name__}: {e}"},
+            status_code=200,
+            content={
+                "answer": "حدث خطأ غير متوقع، الرجاء المحاولة مرة أخرى بعد قليل.",
+                "sources": [],
+            },
         )
 
 
