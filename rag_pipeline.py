@@ -281,8 +281,9 @@ def generate_direct_chat(question):
 
 
 
-        except Exception:
+        except Exception as e:
 
+            print(f"⚠️ Gemini error [{model}] (direct chat): {e}")
             continue
 
 
@@ -364,6 +365,7 @@ def generate_answer(prompt):
 
             except Exception as e:
 
+                print(f"⚠️ Gemini error [{model}] attempt {attempt+1}: {e}")
 
                 if "429" in str(e):
 
