@@ -1,4 +1,4 @@
-import os
+عطimport os
 import time
 import warnings
 
@@ -240,4 +240,409 @@ def is_small_talk(question):
 
 
 
-    return False
+    return False# =====================================================
+# Direct Chat Generator
+# =====================================================
+
+
+def generate_direct_chat(question):
+
+
+    prompt = f"""
+
+أنت "نظامي"، مساعد قانوني متخصص في نظام العمل السعودي.
+
+أجب باختصار وبأسلوب مهني.
+
+السؤال:
+{question}
+
+"""
+
+
+
+    for model in MODEL_FALLBACK_CHAIN:
+
+
+        try:
+
+            response = client.models.generate_content(
+
+                model=model,
+
+                contents=prompt
+
+            )
+
+
+            if response and response.text:
+
+                return response.text
+
+
+
+        except Exception:
+
+            continue
+
+
+
+    return (
+        "أهلاً بك. أنا نظامي، "
+        "مساعد قانوني متخصص في نظام العمل السعودي."
+    )
+
+
+
+
+
+
+
+
+
+# =====================================================
+# Local Context Filter
+# =====================================================
+
+
+def filter_context_results(question, results):
+
+
+    if not results:
+
+        return []
+
+
+
+    # لا نعيد ترتيب النتائج بقواعد يدوية
+    # نعتمد على ترتيب Hybrid Search
+
+    return results[:FINAL_CONTEXT_K]
+
+
+
+
+
+
+
+
+
+# =====================================================
+# Gemini Answer Generator
+# =====================================================
+
+
+def generate_answer(prompt):
+
+
+    for model in MODEL_FALLBACK_CHAIN:
+
+
+        for attempt in range(MAX_ATTEMPTS_PER_MODEL):
+
+
+            try:
+
+
+                response = client.models.generate_content(
+
+                    model=model,
+
+                    contents=prompt,
+
+                    config=GENERATION_CONFIG
+
+                )
+
+
+
+                if response and response.text:
+
+                    return response.text
+
+
+
+            except Exception as e:
+
+
+                if "429" in str(e):
+
+                    time.sleep(3)
+
+                else:
+
+                    time.sleep(
+                        BACKOFF_SECONDS[attempt]
+                    )
+
+
+
+    return (
+        "تعذر الاتصال بنموذج الذكاء الاصطناعي حالياً."
+    )
+
+
+
+
+
+
+
+
+
+# =====================================================
+# Main RAG Pipeline
+# =====================================================
+
+
+def ask_rag(question):
+
+
+    # Small Talk
+
+    if is_small_talk(question):
+
+
+        return (
+
+            generate_direct_chat(question),
+
+            [],
+
+            []
+
+        )
+
+
+
+
+
+    # Hybrid Search
+
+    results = hybrid_search(
+
+        question,
+
+        top_k=RETRIEVAL_TOP_K
+
+    )
+
+
+
+
+
+    # أخذ أفضل النتائج كما رجعها البحث
+
+    results = filter_context_results(
+
+        question,
+
+        results
+
+    )
+
+
+
+
+
+    if not results:
+
+
+        return (
+
+            "أنا نظامي، مساعد قانوني متخصص في نظام العمل السعودي.\n"
+            "لم أجد نصاً متعلقاً بهذا السؤال في البيانات المتاحة.",
+
+            [],
+
+            []
+
+        )
+
+
+
+
+
+
+
+    context = ""
+
+    sources = []
+
+    contexts = []
+
+
+
+
+
+    for r in results:
+
+
+
+        bab = r.get(
+
+            "bab_title",
+
+            ""
+
+        )
+
+
+        article = r.get(
+
+            "article_no",
+
+            ""
+
+        )
+
+
+        text = r.get(
+
+            "text",
+
+            ""
+
+        )
+
+
+
+
+
+        context += f"""
+
+الباب:
+{bab}
+
+
+المادة:
+{article}
+
+
+النص:
+{text}
+
+---------------------
+
+"""
+
+
+
+        if len(sources) < 3:
+
+            sources.append(
+
+                f"المادة {article} - {bab}"
+
+            )
+
+
+
+        contexts.append(text)
+
+
+
+
+
+
+
+    prompt = f"""
+
+السياق المتاح:
+
+{context}
+
+
+سؤال المستخدم:
+
+{question}
+
+
+أجب اعتماداً على السياق فقط.
+
+"""
+
+
+
+
+
+    answer = generate_answer(
+
+        prompt
+
+    )
+
+
+
+
+
+    return (
+
+        answer,
+
+        sources,
+
+        contexts
+
+    )
+
+
+
+
+
+
+
+
+
+# =====================================================
+# Test
+# =====================================================
+
+
+if __name__ == "__main__":
+
+
+    questions = [
+
+        "اهلين",
+
+        "أهلاً كيف حالك؟",
+
+        "ما حقوقي إذا استقلت من العمل؟"
+
+    ]
+
+
+
+    for q in questions:
+
+
+        print("\n" + "="*60)
+
+
+        print("❓ السؤال:")
+
+        print(q)
+
+
+
+        ans, src, ctx = ask_rag(q)
+
+
+
+        print("\n💡 الإجابة:")
+
+        print(ans)
+
+
+
+        if src:
+
+            print("\n📌 المصادر:")
+
+            for s in src:
+
+                print("-", s)
+
+
+
+        print("="*60)
