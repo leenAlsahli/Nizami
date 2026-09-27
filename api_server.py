@@ -1,4 +1,3 @@
-
 import json
 
 from fastapi import FastAPI
@@ -11,8 +10,11 @@ from rag_pipeline import ask_rag
 
 app = FastAPI(title="نظامي API")
 
-# CORS مفتوح -- مو ضروري أصلاً بما إن الواجهة والـ API على نفس الأصل،
-# بس نخليها موجودة احتياط لو حبيتي تفصلين الواجهة لسيرفر ثاني مستقبلاً
+
+# =====================================================
+# CORS
+# =====================================================
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,26 +23,40 @@ app.add_middleware(
 )
 
 
+
 # =====================================================
-# تحميل عدد المواد -- يستخدم بصفحة "حول النظام"
+# Load Dataset
 # =====================================================
 
-with open("saudi_labor_law_dataset_full.json", encoding="utf-8") as f:
+with open(
+    "saudi_labor_law_dataset_full.json",
+    encoding="utf-8"
+) as f:
     _dataset = json.load(f)
 
+
+
+# =====================================================
+# Request Model
+# =====================================================
 
 class AskRequest(BaseModel):
     question: str
 
 
 
+# =====================================================
+# Frontend
+# =====================================================
+
 @app.get("/")
 def serve_index():
     return FileResponse("index.html")
 
 
+
 # =====================================================
-# API
+# API Info
 # =====================================================
 
 @app.get("/api/info")
@@ -51,15 +67,35 @@ def info():
     }
 
 
+
+# =====================================================
+# Ask RAG
+# =====================================================
+
 @app.post("/api/ask")
 def ask(payload: AskRequest):
-    answer, sources = ask_rag(payload.question)
+
+    answer, sources, contexts = ask_rag(
+        payload.question
+    )
+
     return {
         "answer": answer,
         "sources": sources,
     }
 
 
+
+# =====================================================
+# Run Local
+# =====================================================
+
 if __name__ == "__main__":
+
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8501)
+
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8501
+    )
