@@ -11,7 +11,6 @@ from hybrid_search import hybrid_search
 warnings.filterwarnings("ignore")
 
 
-
 # =====================================================
 # Gemini Client Setup
 # =====================================================
@@ -45,8 +44,6 @@ print("Gemini connected ✅")
 
 
 
-
-
 # =====================================================
 # Configuration
 # =====================================================
@@ -72,18 +69,10 @@ BACKOFF_SECONDS = [
 ]
 
 
-
-# Hybrid Search فقط
-
 RETRIEVAL_TOP_K = 10
 
 
-# عدد النتائج التي تدخل Gemini
-
 FINAL_CONTEXT_K = 4
-
-
-
 
 
 
@@ -109,7 +98,7 @@ SYSTEM_INSTRUCTION = """
 
 5. ابدأ بالإجابة المباشرة على سؤال المستخدم.
 
-6. استخدم فقط المواد الأكثر ارتباطاً بالسؤال، ولا تذكر مواد جانبية غير ضرورية.
+6. استخدم فقط المواد الأكثر ارتباطاً بالسؤال.
 
 7. إذا احتوى السياق على أكثر من مادة مرتبطة، اجمعها في إجابة واحدة مرتبة.
 
@@ -118,10 +107,6 @@ SYSTEM_INSTRUCTION = """
 9. اجعل الإجابة واضحة ومباشرة ودقيقة قانونياً.
 
 """
-
-
-
-
 
 
 GENERATION_CONFIG = types.GenerateContentConfig(
@@ -135,10 +120,6 @@ GENERATION_CONFIG = types.GenerateContentConfig(
     system_instruction=SYSTEM_INSTRUCTION
 
 )
-
-
-
-
 
 
 
@@ -175,11 +156,6 @@ def normalize_text(text):
 
 
 
-
-
-
-
-
 # =====================================================
 # Small Talk Detection
 # =====================================================
@@ -187,9 +163,7 @@ def normalize_text(text):
 
 def is_small_talk(question):
 
-
     clean_q = normalize_text(question)
-
 
 
     greetings = {
@@ -211,7 +185,6 @@ def is_small_talk(question):
         "وش تسوي"
 
     }
-
 
 
 
@@ -240,7 +213,11 @@ def is_small_talk(question):
 
 
 
-    return False# =====================================================
+    return False
+
+
+
+# =====================================================
 # Direct Chat Generator
 # =====================================================
 
@@ -260,9 +237,7 @@ def generate_direct_chat(question):
 """
 
 
-
     for model in MODEL_FALLBACK_CHAIN:
-
 
         try:
 
@@ -280,10 +255,12 @@ def generate_direct_chat(question):
                 return response.text
 
 
-
         except Exception as e:
 
-            print(f"⚠️ Gemini error [{model}] (direct chat): {e}")
+            print(
+                f"⚠️ Gemini error [{model}] direct chat: {e}"
+            )
+
             continue
 
 
@@ -292,37 +269,21 @@ def generate_direct_chat(question):
         "أهلاً بك. أنا نظامي، "
         "مساعد قانوني متخصص في نظام العمل السعودي."
     )
-
-
-
-
-
-
-
-
-
-# =====================================================
+    # =====================================================
 # Local Context Filter
 # =====================================================
 
 
 def filter_context_results(question, results):
 
-
     if not results:
 
         return []
 
 
-
-    # لا نعيد ترتيب النتائج بقواعد يدوية
     # نعتمد على ترتيب Hybrid Search
 
     return results[:FINAL_CONTEXT_K]
-
-
-
-
 
 
 
@@ -341,9 +302,7 @@ def generate_answer(prompt):
 
         for attempt in range(MAX_ATTEMPTS_PER_MODEL):
 
-
             try:
-
 
                 response = client.models.generate_content(
 
@@ -356,7 +315,6 @@ def generate_answer(prompt):
                 )
 
 
-
                 if response and response.text:
 
                     return response.text
@@ -365,7 +323,11 @@ def generate_answer(prompt):
 
             except Exception as e:
 
-                print(f"⚠️ Gemini error [{model}] attempt {attempt+1}: {e}")
+
+                print(
+                    f"⚠️ Gemini error [{model}] attempt {attempt+1}: {e}"
+                )
+
 
                 if "429" in str(e):
 
@@ -382,10 +344,6 @@ def generate_answer(prompt):
     return (
         "تعذر الاتصال بنموذج الذكاء الاصطناعي حالياً."
     )
-
-
-
-
 
 
 
@@ -417,7 +375,6 @@ def ask_rag(question):
 
 
 
-
     # Hybrid Search
 
     results = hybrid_search(
@@ -431,8 +388,7 @@ def ask_rag(question):
 
 
 
-
-    # أخذ أفضل النتائج كما رجعها البحث
+    # Filter results
 
     results = filter_context_results(
 
@@ -441,7 +397,6 @@ def ask_rag(question):
         results
 
     )
-
 
 
 
@@ -464,8 +419,6 @@ def ask_rag(question):
 
 
 
-
-
     context = ""
 
     sources = []
@@ -475,9 +428,7 @@ def ask_rag(question):
 
 
 
-
     for r in results:
-
 
 
         bab = r.get(
@@ -509,7 +460,6 @@ def ask_rag(question):
 
 
 
-
         context += f"""
 
 الباب:
@@ -531,6 +481,7 @@ def ask_rag(question):
 
         if len(sources) < 3:
 
+
             sources.append(
 
                 f"المادة {article} - {bab}"
@@ -538,9 +489,7 @@ def ask_rag(question):
             )
 
 
-
         contexts.append(text)
-
 
 
 
@@ -566,13 +515,11 @@ def ask_rag(question):
 
 
 
-
     answer = generate_answer(
 
         prompt
 
     )
-
 
 
 
@@ -586,9 +533,6 @@ def ask_rag(question):
         contexts
 
     )
-
-
-
 
 
 
