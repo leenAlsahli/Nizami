@@ -48,9 +48,6 @@ print("Gemini connected ✅")
 # Configuration
 # =====================================================
 
-# ملاحظة مهمة: نماذج Gemini 2.5 سيتوقف العمل بها في 16 أكتوبر 2026.
-# لو رجعتِ لهذا الملف بعد هذا التاريخ لازم تشيلين gemini-2.5-* من القائمة
-# وتحطين بدلها إصدار أحدث مستقر وقتها (تأكدي من توثيق Gemini الرسمي).
 MODEL_FALLBACK_CHAIN = [
 
     "gemini-3.1-flash-lite",
@@ -77,46 +74,62 @@ RETRIEVAL_TOP_K = 10
 FINAL_CONTEXT_K = 4
 
 
-# الرد الذي يظهر للمستخدم فقط إذا فشلت كل النماذج في السلسلة بالكامل
+
 FALLBACK_UNAVAILABLE_MESSAGE = (
     "تعذر الاتصال بنموذج الذكاء الاصطناعي حالياً، الرجاء المحاولة بعد قليل."
 )
 
 
-# العلامة الداخلية التي يرد بها Gemini عندما يقرر أن السؤال يحتاج
-# بحثاً في نظام العمل السعودي (لا تظهر أبداً للمستخدم)
+
+# يستخدم داخلياً فقط
 NEED_CONTEXT_TOKEN = "NEED_CONTEXT"
 
 
 
 # =====================================================
-# System Instructions
+# Router Instruction
 # =====================================================
 
-# التعليمة الخاصة بمرحلة "التوجيه": يقرر Gemini هل السؤال متعلق
-# بنظام العمل السعودي (فيحتاج سياق/استرجاع) أو دردشة عامة (فيرد مباشرة)
 ROUTER_SYSTEM_INSTRUCTION = f"""
 
-أنت "نظامي"، مساعد قانوني ذكي متخصص في نظام العمل السعودي.
+أنت مصنف رسائل فقط.
 
-في كل رسالة تصلك، حدد أولاً نوع الرسالة:
+حدد هل سؤال المستخدم متعلق بنظام العمل السعودي أم لا.
 
-1) إذا كانت الرسالة سؤالاً يتعلق فعلياً بنظام العمل السعودي
-(حقوق وواجبات العامل أو صاحب العمل، عقود العمل، الأجور، الإجازات،
-الإنهاء أو الاستقالة، ساعات العمل، المكافآت، إلخ):
-رد فقط بالكلمة التالية بالضبط وبدون أي إضافة أو علامات ترقيم:
+إذا كان السؤال متعلقاً بـ:
+- حقوق العامل
+- حقوق صاحب العمل
+- العقود
+- الأجور
+- الإجازات
+- الاستقالة
+- الفصل
+- ساعات العمل
+- المكافآت
+- أي مادة من نظام العمل السعودي
+
+اكتب فقط:
+
 {NEED_CONTEXT_TOKEN}
 
-2) إذا كانت الرسالة تحية أو دردشة عامة أو سؤالاً عن هويتك أو أي شيء
-غير متعلق بنظام العمل السعودي:
-رد مباشرة برسالة قصيرة وودودة ومهنية بصفتك "نظامي"، مساعد قانوني
-متخصص في نظام العمل السعودي. لا تكتب كلمة {NEED_CONTEXT_TOKEN} أبداً
-في هذه الحالة.
+
+إذا لم يكن متعلقاً بنظام العمل السعودي:
+
+اكتب فقط:
+
+NO_CONTEXT
+
+
+لا تكتب أي شرح إضافي.
 
 """
 
 
-# التعليمة الخاصة بمرحلة "الإجابة النهائية" بعد استرجاع السياق القانوني
+
+# =====================================================
+# Final Answer Instruction
+# =====================================================
+
 SYSTEM_INSTRUCTION = """
 
 أنت "نظامي"، مساعد قانوني ذكي متخصص في نظام العمل السعودي.
@@ -145,15 +158,17 @@ SYSTEM_INSTRUCTION = """
 """
 
 
-ROUTER_GENERATION_CONFIG = types.GenerateContentConfig(
+
+ROUTER_CONFIG = types.GenerateContentConfig(
 
     temperature=0.0,
 
-    max_output_tokens=300,
+    max_output_tokens=20,
 
     system_instruction=ROUTER_SYSTEM_INSTRUCTION
 
 )
+
 
 
 GENERATION_CONFIG = types.GenerateContentConfig(
@@ -171,9 +186,109 @@ GENERATION_CONFIG = types.GenerateContentConfig(
 
 
 # =====================================================
-# Local Context Filter
+# Gemini Caller
 # =====================================================
 
+def _call_gemini(contents, config):
+
+
+    for model in MODEL_FALLBACK_CHAIN:
+
+
+        for attempt in range(MAX_ATTEMPTS_PER_MODEL):
+
+
+            try:
+
+                response = client.models.generate_content(
+
+                    model=model,
+
+                    contents=contents,
+
+                    config=config
+
+                )
+
+
+                if response and response.text:
+
+                    return response.text.strip()
+
+
+            except Exception as e:
+
+
+                print(
+                    f"⚠️ Gemini error [{model}] attempt {attempt+1}: {e}"
+                )
+
+
+                if "429" in str(e):
+
+                    time.sleep(3)
+
+                else:
+
+                    time.sleep(
+                        BACKOFF_SECONDS[attempt]
+                    )
+
+
+    return None
+
+
+
+# =====================================================
+# General Chat Reply
+# =====================================================
+
+def generate_chat_reply(question):
+
+
+    prompt = f"""
+
+أنت "نظامي"، مساعد ذكي.
+
+رد على المستخدم بشكل طبيعي وودود.
+
+إذا سأل المستخدم عن هويتك عرف بنفسك.
+
+لا تعطِ إجابات قانونية إلا إذا طلب المستخدم ذلك.
+
+رسالة المستخدم:
+
+{question}
+
+"""
+
+
+    response = _call_gemini(
+
+        prompt,
+
+        types.GenerateContentConfig(
+
+            temperature=0.6,
+
+            max_output_tokens=200
+
+        )
+
+    )
+
+
+    if response:
+
+        return response
+
+
+    return (
+        "أهلاً بك، كيف يمكنني مساعدتك؟"
+    )
+# =====================================================
+# Local Context Filter
+# =====================================================
 
 def filter_context_results(question, results):
 
@@ -188,101 +303,81 @@ def filter_context_results(question, results):
 
 
 
-# =====================================================
-# Generic Gemini Caller (with fallback chain + retries)
-# =====================================================
-
-
-def _call_gemini(contents, config):
-    """
-    يحاول الاتصال بكل نموذج في MODEL_FALLBACK_CHAIN بالترتيب،
-    مع إعادة محاولة لكل نموذج. يطبع سبب الفشل الحقيقي في اللوق
-    (Render logs) فقط، ولا يُرجعه أبداً للمستخدم.
-
-    يرجع نص الرد أو None إذا فشلت كل المحاولات.
-    """
-
-    for model in MODEL_FALLBACK_CHAIN:
-
-        for attempt in range(MAX_ATTEMPTS_PER_MODEL):
-
-            try:
-
-                response = client.models.generate_content(
-
-                    model=model,
-
-                    contents=contents,
-
-                    config=config
-
-                )
-
-                if response and response.text:
-
-                    return response.text.strip()
-
-            except Exception as e:
-
-                # هذا يطبع فقط في لوق السيرفر (Render) للتشخيص الداخلي،
-                # ولا يصل أبداً للمستخدم أو للفرونت إند
-                print(
-                    f"⚠️ Gemini error [{model}] attempt {attempt + 1}: {e}"
-                )
-
-                if "429" in str(e):
-
-                    time.sleep(3)
-
-                else:
-
-                    time.sleep(
-                        BACKOFF_SECONDS[attempt]
-                    )
-
-    return None
-
-
 
 # =====================================================
 # Main RAG Pipeline
 # =====================================================
 
-
 def ask_rag(question):
+
+
     """
-    كل رسالة تُرسل أولاً إلى Gemini ليقرر بنفسه:
-    - إذا كانت متعلقة بنظام العمل السعودي: نسوي Hybrid Search
-      ثم نرجع للـ Gemini مرة ثانية بالسياق القانوني لصياغة الإجابة.
-    - إذا كانت دردشة عامة/تحية/سؤال عن الهوية: يرد Gemini مباشرة
-      بنفس الاستدعاء الأول بدون أي بحث.
+    Workflow:
+
+    1- Gemini Router يحدد:
+       - سؤال قانوني → RAG
+       - سؤال عام → Chat
+
+    2- إذا قانوني:
+       Hybrid Search
+       ثم Gemini يكتب الإجابة من السياق
+
     """
 
-    # المرحلة 1: التوجيه -- دائماً عبر Gemini، بدون أي تصنيف محلي ثابت
+
+
+    # =================================================
+    # المرحلة الأولى: Router
+    # =================================================
+
     router_reply = _call_gemini(
-        contents=question,
-        config=ROUTER_GENERATION_CONFIG
+
+        question,
+
+        ROUTER_CONFIG
+
     )
+
+
 
     if router_reply is None:
 
-        # فشلت كل النماذج حتى بمرحلة التوجيه
+
         return (
+
             FALLBACK_UNAVAILABLE_MESSAGE,
+
             [],
+
             []
+
         )
+
+
+
+    # =================================================
+    # سؤال عام
+    # =================================================
 
     if router_reply.strip().upper() != NEED_CONTEXT_TOKEN:
 
-        # دردشة عامة / تحية / سؤال عن الهوية -- رد Gemini مباشرة
+
         return (
-            router_reply,
+
+            generate_chat_reply(question),
+
             [],
+
             []
+
         )
 
-    # المرحلة 2: السؤال متعلق بنظام العمل السعودي -- نسوي Hybrid Search
+
+
+    # =================================================
+    # سؤال قانوني --> RAG
+    # =================================================
+
 
     results = hybrid_search(
 
@@ -292,6 +387,8 @@ def ask_rag(question):
 
     )
 
+
+
     results = filter_context_results(
 
         question,
@@ -300,7 +397,10 @@ def ask_rag(question):
 
     )
 
+
+
     if not results:
+
 
         return (
 
@@ -313,13 +413,18 @@ def ask_rag(question):
 
         )
 
+
+
     context = ""
 
     sources = []
 
     contexts = []
 
+
+
     for r in results:
+
 
         bab = r.get(
 
@@ -329,6 +434,7 @@ def ask_rag(question):
 
         )
 
+
         article = r.get(
 
             "article_no",
@@ -337,6 +443,7 @@ def ask_rag(question):
 
         )
 
+
         text = r.get(
 
             "text",
@@ -344,6 +451,8 @@ def ask_rag(question):
             ""
 
         )
+
+
 
         context += f"""
 
@@ -362,7 +471,10 @@ def ask_rag(question):
 
 """
 
+
+
         if len(sources) < 3:
+
 
             sources.append(
 
@@ -370,7 +482,11 @@ def ask_rag(question):
 
             )
 
+
+
         contexts.append(text)
+
+
 
     prompt = f"""
 
@@ -388,14 +504,24 @@ def ask_rag(question):
 
 """
 
+
+
     answer = _call_gemini(
-        contents=prompt,
-        config=GENERATION_CONFIG
+
+        prompt,
+
+        GENERATION_CONFIG
+
     )
+
+
 
     if answer is None:
 
+
         answer = FALLBACK_UNAVAILABLE_MESSAGE
+
+
 
     return (
 
@@ -409,36 +535,50 @@ def ask_rag(question):
 
 
 
+
+
 # =====================================================
 # Test
 # =====================================================
 
-
 if __name__ == "__main__":
+
 
     questions = [
 
         "اهلين",
 
-        "أهلاً كيف حالك؟",
+        "شخبارك",
+
+        "وش اسمك",
 
         "ما حقوقي إذا استقلت من العمل؟"
 
     ]
 
+
+
     for q in questions:
 
-        print("\n" + "=" * 60)
+
+        print("\n" + "="*60)
 
         print("❓ السؤال:")
+
         print(q)
+
 
         ans, src, ctx = ask_rag(q)
 
+
         print("\n💡 الإجابة:")
+
         print(ans)
 
+
+
         if src:
+
 
             print("\n📌 المصادر:")
 
@@ -446,4 +586,5 @@ if __name__ == "__main__":
 
                 print("-", s)
 
-        print("=" * 60)
+
+        print("="*60)
