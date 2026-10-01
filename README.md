@@ -55,9 +55,9 @@ The system was evaluated using RAG evaluation metrics:
 
 | Metric | Score |
 |---|---:|
-| Faithfulness | 93.3% |
+| Faithfulness | 97.1% |
 | Answer Relevance | 100% |
-| Context Precision | 83.3% |
+| Context Precision | 97.1% |
 
 These results demonstrate the ability of the system to generate relevant answers while maintaining strong grounding in retrieved legal documents.
 
